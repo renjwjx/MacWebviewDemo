@@ -9,8 +9,8 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 
-@interface ViewController : NSViewController
-@property (weak) IBOutlet WebView *emWebView;
+@interface ViewController : NSViewController <WKNavigationDelegate, WKUIDelegate>
+@property (weak) IBOutlet WKWebView *emWebView;
 
 
 @end
