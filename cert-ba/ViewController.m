@@ -10,6 +10,10 @@
 #import <Security/SecCertificate.h>
 #import <Security/SecBase.h>
 #import <WebKit/WebKit.h>
+#import <SecurityInterface/SFCertificateTrustPanel.h>
+#import <SecurityInterface/SFChooseIdentityPanel.h>
+
+
 
 #define  SSO32_URL @"https://quxie-cucm105-2-pub.jabberqa.cisco.com:8443/ssosp/oauth/authorize?scope=UnifiedCommunications:readwrite&response_type=token&client_id=C41eb54529dd9907e01d3744ead3a991ba9cc4c772b0497ebe8a103fa69fe81a8"
 #define CUSTOMER_EDGE @"https://exp-e2.tlabs.de:8443/dGxhYnMuZGU/authorize?response_type=token&realm=local&client_id=C41eb54529dd9907e01d3744ead3a991ba9cc4c772b0497ebe8a103fa69fe81a8&device_id=8090A21C-2961-439C-9A8C-B2C1CFB6426C&email=mende.christian@tlabs.de"
@@ -29,7 +33,7 @@
     // Do any additional setup after loading the view.
     [self.emWebView loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:CUSTOMER_EDGE]]];
 
-    [self listCerti];
+
 }
 
 
@@ -52,7 +56,7 @@
         challengeType = NSURLSessionAuthChallengeUseCredential;
     } else if([authMethod isEqualToString:NSURLAuthenticationMethodClientCertificate])
     {
-        credential = [self createCredentialForCert];
+        credential = [self selectCredentialForCert];
         // TODO: server trust SecTrustRef
     
         challengeType = NSURLSessionAuthChallengeUseCredential;
@@ -76,59 +80,37 @@
     CFRelease(errorMessage);
 }
 
-- (void)listCerti
+
+- (NSURLCredential*)selectCredentialForCert
 {
-//    SecKeychainRef keychain = ...
-    NSDictionary *query = [NSDictionary dictionaryWithObjectsAndKeys:
-                           (__bridge id)kSecClassCertificate, kSecClass,
-                           //[NSArray arrayWithObject:(id)keychain], kSecMatchSearchList,
-                           kCFBooleanTrue, kSecReturnRef,
-                           kSecMatchLimitAll, kSecMatchLimit,
-                           nil];
-    CFArrayRef items;
-    OSStatus status = SecItemCopyMatching((CFDictionaryRef)query, (CFTypeRef *)&items);
-    if (status) {
-        if (status != errSecItemNotFound)
-            NSLog(@"Can't search keychain");
-    }
-    CFStringRef commonName = NULL;
+    CFArrayRef latestIdentities;
+    CFArrayRef latestCertificates;
+    SecIdentityRef identity = nil;
+    NSURLCredential *credential = nil;
+    NSMutableDictionary *filterDictionary = [NSMutableDictionary dictionaryWithObjectsAndKeys:
+                                             (__bridge id)kSecClassIdentity, kSecClass,
+                                             kSecMatchLimitAll,              kSecMatchLimit,
+                                             kCFBooleanTrue,                 kSecReturnRef,
+                                             kCFBooleanTrue,                 kSecAttrCanVerify,
+                                             //                                             kCFBooleanTrue,                 kSecMatchTrustedOnly,
+                                             nil];
     
-    NSArray* certificates = (__bridge NSArray*)items;
-    for (id certi in certificates) {
-        SecCertificateRef certificate = (__bridge SecCertificateRef)certi;
-        SecCertificateCopyCommonName(certificate, &commonName);
-        NSLog(@"common name = %@", (__bridge NSString *)commonName);
-        NSLog(@"%d", CFGetTypeID(certificate));
-    }
+    OSStatus err = SecItemCopyMatching((__bridge CFDictionaryRef)(filterDictionary), (CFTypeRef *) &latestIdentities);
     
-    NSDictionary *queryID = [NSDictionary dictionaryWithObjectsAndKeys:
-                           (__bridge id)kSecClassIdentity, kSecClass,
-                          kCFBooleanTrue,                 kSecAttrCanVerify,
-                           kCFBooleanTrue, kSecReturnRef,
-                           kSecMatchLimitAll, kSecMatchLimit,
-                           nil];
-    status = SecItemCopyMatching((CFDictionaryRef)queryID, (CFTypeRef *)&items);
-    if (status) {
-        if (status != errSecItemNotFound)
-            NSLog(@"Can't search keychain");
+    SFChooseIdentityPanel *identityPanel = [SFChooseIdentityPanel sharedChooseIdentityPanel];
+    [identityPanel setInformativeText:NSLocalizedString(@"A certificate to validate your identity is required. Select a certificate to use when you connect.", @"Label: Description for authentication dialog")];
+    [identityPanel setAlternateButtonTitle:NSLocalizedString(@"Cancel", @"Button Title: Cancel")];
+    
+    if([identityPanel runModalForIdentities:(__bridge NSArray*)latestIdentities message:NSLocalizedString(@"Select a certificate", @"Label: Title for authentication dialog")])
+    {
+        // create an nsurlcredential with a certificate the user selected in the identity dialog
+        identity = [identityPanel identity];
+        credential = [NSURLCredential credentialWithIdentity:identity
+                                                certificates:nil
+                                                 persistence:NSURLCredentialPersistenceForSession];
     }
-    SecCertificateRef certiforIdenti;
-    NSArray* identifies = (__bridge NSArray*)items;
-    for (id identi in identifies) {
-        SecIdentityRef idCert = (__bridge SecIdentityRef)identi;
-        SecIdentityCopyCertificate(idCert, &certiforIdenti);
-        NSLog(@"%@", SecCertificateCopySubjectSummary(certiforIdenti));
-    }
-//    SecCertificateRef certificate = (__bridge SecCertificateRef)([(__bridge NSArray*)items firstObject]);
-//    SecCertificateCopyCommonName(certificate, &commonName);
-//    NSLog(@"common name = %@", (__bridge NSString *)commonName);
-
-//    items;
-//    SecCertificateRef
-    // items contains all SecCertificateRefs in keychain
-
+    return credential;
 }
-
 
 - (NSURLCredential*)createCredentialForCert
 {
@@ -147,21 +129,8 @@
 
     OSStatus err = SecItemCopyMatching((__bridge CFDictionaryRef)(filterDictionary), (CFTypeRef *) &latestIdentities);
     
-//    err = SecItemCopyMatching(
-//                              (CFDictionaryRef) [NSDictionary dictionaryWithObjectsAndKeys:
-//                                                 (id) kSecClassCertificate,  kSecClass,
-//                                                 kSecMatchLimitAll,          kSecMatchLimit,
-//                                                 kCFBooleanTrue,             kSecReturnRef,
-//                                                 nil
-//                                                 ],
-//                              (CFTypeRef *) &latestCertificates
-//                              );
-
-        //SecIdentityRef latestId
     if(err == errSecSuccess)
     {
-        NSInteger identitiesCount = [(__bridge NSArray *)(latestIdentities) count];
-        
         SecCertificateRef certiforIdenti;
         CFStringRef commonName = NULL;
         NSArray* identis = (__bridge NSArray*)latestIdentities;
@@ -172,16 +141,14 @@
             NSString* name = (__bridge NSString*)commonName;
             if ([name isEqualToString:@"Cisco.Test"]) {
                 NSArray* certiArray = [NSArray arrayWithObjects:(__bridge id _Nonnull)(certiforIdenti), nil];
-//                CFArrayRef certiArray = CFArrayCreate(NULL, &certiforIdenti, 1, NULL);
                 credential = [NSURLCredential credentialWithIdentity:idCert
                                                         certificates:certiArray
                                                      persistence:NSURLCredentialPersistenceForSession];
-                return credential;
+                break;
             }
         }
 
     }
-
     return credential;
 }
 
